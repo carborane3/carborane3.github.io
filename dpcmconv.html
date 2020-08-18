@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+	<meta charset="UTF-8" />
+	<title>DPCM変換器 for FlMML</title>
+	<script>
+"use strict";
+
+(function () {
+
+var file;
+var reader = new FileReader();
+var blobHead, blobData;
+var nCh, sRate, bDepth;
+var dataIdx, dataSize;
+var audioCtx, gain, bufBefore, bufAfter, bufSrc, playbackRate;
+var PRCENT = Math.pow(2.0, 1.0 / 1200.0); // 2の1200乗根
+
+var base64 = [
+	"A", "B", "C", "D", "E", "F", "G", "H",
+	"I", "J", "K", "L", "M", "N", "O", "P",
+	"Q", "R", "S", "T", "U", "V", "W", "X",
+	"Y", "Z", "a", "b", "c", "d", "e", "f",
+	"g", "h", "i", "j", "k", "l", "m", "n",
+	"o", "p", "q", "r", "s", "t", "u", "v",
+	"w", "x", "y", "z", "0", "1", "2", "3",
+	"4", "5", "6", "7", "8", "9", "+", "/"
+];
+
+/* ----------------------------------------------------------------
+	2の1200乗根を底とする対数関数
+   ---------------------------------------------------------------- */
+function logCent(x) {
+	return Math.log(x) / Math.log(PRCENT);
+}
+
+/* ----------------------------------------------------------------
+	2の1200乗根を底とする指数関数
+   ---------------------------------------------------------------- */
+function powCent(x) {
+	return Math.pow(PRCENT, x);
+}
+
+/* ----------------------------------------------------------------
+	線形補間
+	ary:   補間する配列
+	flg:   "rat"または"len"を指定
+	param: (flg="rat"のとき)倍率(1以上で高く/短く, 1未満で低く/長く)
+	       (flg="len"のとき)伸縮後の配列長
+	loop:  trueのとき前後ループしているものとして補間
+   ---------------------------------------------------------------- */
+function lerp(ary, flg, param, loop) {
+	var i, a, f, c, r, rat, sft, aryL, lenL;
+	var len = ary.length;
+
+	if (flg === "rat") {
+		rat = param;
+		aryL = new Array(Math.floor(len / rat));
+		lenL = aryL.length;
+	} else if (flg === "len") {
+		lenL = param;
+		aryL = new Array(lenL);
+		rat = len / lenL;
+	} else {
+		return;
+	}
+
+	sft = (rat - 1) / 2;
+	for (i = 0; i < lenL; i++) {
+		a = i * rat + sft;
+		f = Math.floor(a);
+		c = Math.ceil(a);
+		if (loop) {
+			if (f < 0) f += len;
+			if (f >= len) f -= len;
+			if (c < 0) c += len;
+			if (c >= len) c -= len;
+		} else {
+			if (f < 0) f = c = 0;
+			if (c >= len) f = c = len - 1;
+		}
+		r = Math.abs(a % 1);
+		aryL[i] = ary[f] * (1.0 - r) + ary[c] * r;
+	}
+
+	return aryL;
+}
+
+/* ----------------------------------------------------------------
+	Uint8Array型の配列をBase64文字列にエンコード
+   ---------------------------------------------------------------- */
+function base64EncodeUint8(ary) {
+	var i, j, s;
+	var len = ary.length;
+	var bitAry = new Uint8Array(Math.ceil(len * 8.0 / 6.0) * 6.0);
+	var lenBit = bitAry.length;
+	var str = "";
+
+	// メモリ食うけど面倒なのでビット毎に配列にする
+	for (i = 0; i < len; i++) {
+		for (j = 0; j < 8; j++) {
+			bitAry[i * 8 + j] = (ary[i] & 1 << 7 - j) >> 7 - j;
+		}
+	}
+
+	// ビット配列の0埋め
+	for (i = len * 8; i < lenBit; i++) bitAry[i] = 0;
+
+	// 変換
+	for (i = 0; i < lenBit; i += 6) {
+		for (j = s = 0; j < 6; j++) {
+			s += bitAry[i + j] << 5 - j;
+		}
+		str += base64[s];
+	}
+
+	// 4の倍数でなければ = で埋める
+	while (str.length % 4) str += "=";
+
+	return str;
+}
+
+/* ----------------------------------------------------------------
+	符号付き16ビット整数を
+	符号なし 8ビット整数に変換
+   ---------------------------------------------------------------- */
+function conv16(lower, upper) {
+	if (upper < 128) {
+		return lower / 256.0 + upper | 0;
+	} else {
+		return (lower + (upper << 8) - 65536) / 256.0 | 0;
+	}
+}
+
+/* ----------------------------------------------------------------
+	document.createElementの短縮
+   ---------------------------------------------------------------- */
+function createElem(tagName) {
+	return document.createElement(tagName);
+}
+
+/* ----------------------------------------------------------------
+	document.getElementByIdの短縮
+   ---------------------------------------------------------------- */
+function getElem(id) {
+	return document.getElementById(id);
+}
+
+/* ----------------------------------------------------------------
+	ラジオボタンの値を取得
+   ---------------------------------------------------------------- */
+function getRadBtnValue(name) {
+	var i;
+	var rads = document.getElementsByName(name);
+
+	if (!rads) return null;
+	for (i = rads.length; i--; ) {
+		if (rads[i].checked) return rads[i].value;
+	}
+}
+
+/* ----------------------------------------------------------------
+	結果を出力
+   ---------------------------------------------------------------- */
+function output(str, opt) {
+	var node;
+	var result = getElem("result");
+
+	node = createElem("span")
+	if (opt === "html") {
+		node.innerHTML = str;
+	} else if (opt === "elem") {
+		result.appendChild(str);
+	} else {
+		node.appendChild(document.createTextNode(str));
+		if (opt === "error") {
+			node.style.color = "red";
+		} else if (opt === "filename") {
+			node.style.fontWeight = "bold";
+		} else if (opt === "small") {
+			node.style.fontSize = "small";
+		}
+	}
+	result.appendChild(node);
+}
+
+/* ----------------------------------------------------------------
+	結果を出力(改行付)
+   ---------------------------------------------------------------- */
+function outputLn(str, opt) {
+	output(str, opt);
+	getElem("result").appendChild(createElem("br"));
+}
+
+/* ----------------------------------------------------------------
+	出力結果消去
+   ---------------------------------------------------------------- */
+function clearResult() {
+	var child;
+	var result = getElem("result");
+
+	while ((child = result.firstChild)) result.removeChild(child);
+}
+
+/* ----------------------------------------------------------------
+	グラフ準備
+   ---------------------------------------------------------------- */
+function initGraph(cv) {
+	var x = 1;
+	var y = 1;
+	var w = cv.width - 2;
+	var h = cv.height - 2;
+	var ctx = cv.getContext("2d");
+
+	ctx.lineWidth = 1;
+	ctx.lineJoin = "bevel";
+	ctx.strokeStyle = "gray";
+	ctx.strokeRect(x, y, w, h);
+	ctx.beginPath();
+	ctx.moveTo(x, y + h / 2.0);
+	ctx.lineTo(x + w, y + h / 2.0);
+	ctx.stroke();
+}
+
+/* ----------------------------------------------------------------
+	グラフ描画
+   ---------------------------------------------------------------- */
+function drawGraph(cv, ary, color) {
+	var i;
+	var len = ary.length;
+	var x = 1;
+	var y = 1;
+	var w = cv.width - 2;
+	var h = cv.height - 2;
+	var ctx = cv.getContext("2d");
+
+	if (!color) color = "black";
+	ctx.beginPath();
+	ctx.moveTo(x, y + (1.0 - ary[0] / 255.0) * h);
+	for (i = 1; i < len; i++) {
+		ctx.lineTo(x + i / len * w, y + (1 - ary[i] / 255.0) * h);
+	}
+	ctx.lineWidth = 1.0;
+	ctx.strokeStyle = color;
+	ctx.stroke();
+}
+
+/* ----------------------------------------------------------------
+	グラフy軸数値を描画
+   ---------------------------------------------------------------- */
+function drawMaxAmp(cv, max) {
+	var x = 1;
+	var y = 1;
+	var h = cv.height - 2;
+	var ctx = cv.getContext("2d");
+	var str = max.toFixed(2);
+
+	ctx.font = "14px 'Helvetica', sans-serif";
+	ctx.lineWidth = 4;
+	ctx.strokeStyle = "white";
+	ctx.fillStyle = "black";
+	ctx.strokeText("+" + str, x, y + 13);
+	ctx.strokeText("0", x, y + h / 2 + 5);
+	ctx.strokeText("-" + str, x, y + h - 2);
+	ctx.fillText("+" + str, x, y + 13);
+	ctx.fillText("0", x, y + h / 2 + 5);
+	ctx.fillText("-" + str, x, y + h - 2);
+}
+
+/* ----------------------------------------------------------------
+	変換前の波形を再生
+   ---------------------------------------------------------------- */
+function playBefore() {
+	if (bufSrc) bufSrc.stop();
+	bufSrc = audioCtx.createBufferSource();
+	bufSrc.buffer = bufBefore;
+	bufSrc.playbackRate.value = Math.abs(playbackRate);
+	bufSrc.loop = playbackRate < 0;
+	bufSrc.connect(gain);
+	bufSrc.start(0);
+}
+
+/* ----------------------------------------------------------------
+	変換後の波形を再生
+   ---------------------------------------------------------------- */
+function playAfter() {
+	if (bufSrc) bufSrc.stop();
+	bufSrc = audioCtx.createBufferSource();
+	bufSrc.buffer = bufAfter;
+	bufSrc.playbackRate.value = Math.abs(playbackRate);
+	bufSrc.loop = playbackRate < 0;
+	bufSrc.connect(gain);
+	bufSrc.start(0);
+}
+
+/* ----------------------------------------------------------------
+	音を止める
+   ---------------------------------------------------------------- */
+function stop() {
+	if (bufSrc) bufSrc.stop();
+}
+
+/* ----------------------------------------------------------------
+	fileの読込を開始
+   ---------------------------------------------------------------- */
+function loadFile() {
+	if (!file) return;
+
+	clearResult();
+	outputLn(file.name, "filename");
+
+	if (!file.slice) {
+		if (file.webkitSlice) {
+			file.slice = file.webkitSlice;
+		} else if (file.mozSlice) {
+			file.slice = file.mozSlice;
+		}
+	}
+
+	blobHead = file.slice(0, 4096);
+
+	reader.onloadend = onLoadEndHead;
+	reader.readAsArrayBuffer(blobHead);
+}
+
+/* ----------------------------------------------------------------
+	ヘッダ読込
+   ---------------------------------------------------------------- */
+function onLoadEndHead(evt) {
+	var i, btn;
+	var d = new Uint8Array(evt.target.result);
+	var blobSize = blobHead.size;
+
+	// 0～3 が"RIFF",
+	// 8～11が"WAVE"
+	if (d[0] !== 0x52 ||
+		d[1] !== 0x49 ||
+		d[2] !== 0x46 ||
+		d[3] !== 0x46 ||
+		d[8] !== 0x57 ||
+		d[9] !== 0x41 ||
+		d[10] !== 0x56 ||
+		d[11] !== 0x45) {
+		outputLn("WAVファイルではありません。", "error");
+		return;
+	}
+
+	// "fmt "から始まるフォーマットチャンクを探す
+	for (i = 12; i < blobSize; i++) {
+		if (d[i - 3] === 0x66 &&
+			d[i - 2] === 0x6D &&
+			d[i - 1] === 0x74 &&
+			d[i] === 0x20) {
+			i += 5;
+			break;
+		}
+	}
+	if (i + 12 >= blobSize) {
+		outputLn("フォーマット情報が見つかりません。", "error");
+		return;
+	}
+
+	if (d[i] !== 1 || d[i + 1] !== 0) {
+		outputLn("リニアPCM形式ではありません。", "error");
+		return;
+	}
+	nCh = d[i + 2] + (d[i + 3] << 8);
+	if (nCh !== 1 && nCh !== 2) {
+		outputLn("チャンネル数が1または2ではありません。", "error");
+		return;
+	}
+	sRate = d[i + 4] + (d[i + 5] << 8) + (d[i + 6] << 16) + (d[i + 7] << 24);
+	bDepth = d[i + 14] + (d[i + 15] << 8);
+	if (bDepth !== 8 && bDepth !== 16) {
+		outputLn("量子化ビット数が8または16ではありません。", "error");
+		return;
+	}
+	i += 16;
+
+	// 次のチャンクが"data"から始まるデータチャンクでなければ飛ばす
+	while (i + 8 <= blobSize && (
+		d[i] !== 0x64 ||
+		d[i + 1] !== 0x61 ||
+		d[i + 2] !== 0x74 ||
+		d[i + 3] !== 0x61)) {
+		i += 8 + d[i + 4] + (d[i + 5] << 8) + (d[i + 6] << 16) + (d[i + 7] << 24);
+	}
+	if (i + 8 > blobSize) {
+		outputLn("波形データが見つかりません。", "error");
+		return;
+	}
+
+	dataIdx = i + 8;
+	dataSize = d[i + 4] + (d[i + 5] << 8) + (d[i + 6] << 16) + (d[i + 7] << 24);
+
+	outputLn(
+		nCh + " チャンネル, " +
+		sRate + " Hz, " +
+		bDepth + " ビット, " +
+		dataSize + " バイト, " +
+		(dataSize / (bDepth >> 3) / nCh / sRate).toFixed(3) +　" 秒"
+	, "small");
+
+	if (dataSize >= 1 << 20) { // 最大1MB
+		outputLn("サイズが大きすぎます。", "error");
+		return;
+	}
+
+	blobData = file.slice(dataIdx, dataIdx + dataSize + 1);
+	reader.onloadend = onLoadEndData;
+	reader.readAsArrayBuffer(blobData);
+
+	btn = createElem("button");
+	btn.appendChild(document.createTextNode("再変換"));
+	btn.addEventListener("click", loadFile);
+	outputLn(btn, "elem");
+}
+
+/* ----------------------------------------------------------------
+	変換
+   ---------------------------------------------------------------- */
+function onLoadEndData(evt) {
+	var i, j, a, b, v, x, z;
+	var len, max, min, str, wavNo;
+	var rat, vi, cent, centMax, up, dw, amp, amp2;
+	var aryD, aryTmp, aryL, aryB, aryO, aryDif, aryBef, aryAft;
+	var bSize = nCh * (bDepth >> 3);
+	var d = new Uint8Array(evt.target.result);
+	var aryD = new Array(dataSize / bSize);
+	var txtArea = createElem("textarea");
+	var radAmp = getRadBtnValue("radAmp");
+	var radPch = getRadBtnValue("radPch");
+	var loop = getElem("loop").checked;
+	var graph = getElem("graph").checked;
+	var btnPlayBef, btnPlayAft, btnStop, rangeVol;
+	var cvGrp, cvNum, divGrpCont, divGraph;
+
+	// 最大振幅を調べる
+	max = -128.0;
+	min = 127.0;
+	for (i = 0; i < dataSize; i += bSize) {
+		if (bDepth === 8) {
+			x = (nCh === 2 ? (d[i] + d[i + 1]) / 2.0 : d[i]) - 128.0;
+		} else {
+			x = nCh === 2 ?
+				(conv16(d[i], d[i + 1]) + conv16(d[i + 2], d[i + 3])) / 2.0 :
+				conv16(d[i], d[i + 1]);
+		}
+		if (x > max) max = x;
+		if (x < min) min = x;
+	}
+	if (radAmp === "auto") {
+		amp = Math.min(127.0 / max, -128.0 / min);
+	} else if (radAmp === "line") {
+		amp = getElem("amp").value;
+		amp = isNaN(amp) ? 1.0 : parseFloat(amp);
+	}
+
+	for (i = 0; i < dataSize; i += bSize) {
+		if (bDepth === 8) {
+			x = (nCh === 2 ? (d[i] + d[i + 1]) / 2 : d[i]) - 128.0;
+		} else {
+			x = nCh === 2 ?
+				(conv16(d[i], d[i + 1]) + conv16(d[i + 2], d[i + 3])) / 2.0 :
+				conv16(d[i], d[i + 1]);
+		}
+		x *= amp;
+		x += 128.0;
+		if (x < 0) x = 0.0;
+		if (x > 255.0) x = 255.0;
+		aryD[i / bSize] = x | 0;
+	}
+
+	// ややこしい周波数調整
+	// @L5277,0,2O4cのときサンプリング周波数44105.625Hzであることを前提にしています。
+	// これはソースから計算したのではなく実験で求めた値なので不正確かもしれません。
+	x = logCent(32649.0 / aryD.length * sRate / 44105.625);
+	centMax = 5277.0 + (loop ? Math.ceil(x) : Math.floor(x));
+	if (radPch === "cent") {
+		cent = getElem("cent").value;
+		if (isNaN(cent)) cent = 4782;
+		if (cent > centMax) {
+			outputLn("伸張後のサンプル数が多すぎます。ピッチを下げて下さい。", "error");
+			outputLn("(最大@L" + centMax + ",0,2)");
+			return;
+		}
+		rat = sRate / 44105.625 / powCent(cent - 5277.0);
+	} else if (radPch === "auto") {
+		cent = centMax > 7999.0 ? 7999.0 : centMax;
+		rat = sRate / 44105.625 / powCent(cent - 5277.0);
+	}
+
+	if (loop) {
+		// ループする場合、MOscFcDpcm.as内の
+		//     //レングス中途半端な場合、削る
+		//     s_length[waveNo] -= ((s_length[waveNo] - 8) % 0x80);
+		// で削られないようサンプル数の調整が必要
+		z = Math.ceil(aryD.length / rat);
+		z -= (z - 8) % 128;
+
+		// 調整後の原音ピッチ補正
+		cent = 5277 + Math.ceil(logCent(z / aryD.length * sRate / 44105.625));
+		//if (cent > 7999) cent = 7999;
+
+		aryL = lerp(aryD, "len", z, true);
+
+		// 後端に初期振幅を追加
+		aryTmp = aryL;
+		aryL = new Array(aryTmp.length + 1);
+		for (i = aryTmp.length - 1; i >= 0; i--) aryL[i] = aryTmp[i];
+		aryL[aryL.length - 1] = aryTmp[0];
+		aryTmp = null;
+	} else {
+		aryL = lerp(aryD, "rat", rat);
+	}
+
+	vi = aryL[0] >> 2 << 1; // 7ビット値だけど最下位ビットは無視
+
+	// ループしない場合削られない長さまで伸ばす
+	len = aryL.length - 1;
+	if ((len - 8) % 128 > 0) len += 128 - (len - 8) % 128;
+	aryB = new Uint8Array(len >> 3);
+
+	v = vi << 1;
+	len = aryL.length;
+	aryO = new Array(len);
+	aryDif = new Array(len);
+	aryO[0] = v;
+	aryDif[0] = Math.abs(v - aryL[0]);
+	up = dw = 0;
+	min = max = v;
+	for (b = j = 0, i = 1; i < len; i++) {
+		if (b === 0) aryB[j] = 0;
+
+		// +4か-4の差分を取ってサンプルを追いかける
+		a = 0; // 上昇=1, 下降=-1
+		x = aryL[i];
+		if (loop) {
+			// ループする場合
+			if (up + dw + Math.abs(up - dw) >= len - 1) {
+				// (強制的にでも)上昇回数=下降回数にする。
+				// これは残りのサンプルで辻褄を合わせなければいけない場合
+				a = up < dw ? 1 : -1;
+			} else {
+				// v=  0のとき下降しないように、
+				// v=252のとき上昇しないようにする
+				// (上昇回数+下降回数をサンプル数に一致させるため)
+				if (v <= 0) {
+					a = 1;
+				} else if (v >= 252) {
+					a = -1;
+				} else if (v <= x) {
+					a = 1;
+				//} else if (v > x) {
+				} else {
+					a = -1;
+				}
+			}
+		} else {
+			// ループしない場合はクリップ部分を平坦にする
+			if (x >= 252 || v <= x) {
+				a = 1;
+			//} else if (x <= 0 || v > x) {
+			} else {
+				a = -1;
+			}
+		}
+
+		if (a > 0) {
+			aryB[j] += 1 << b;
+			v += 4;
+			if (v > 252) v = 252;
+			up++;
+		} else if (a < 0) {
+			v -= 4;
+			if (v < 0) v = 0;
+			dw++;
+		}
+		aryO[i] = v;
+		aryDif[i] = Math.abs(v - aryL[i]);
+		if (v > max) max = v;
+		if (v < min) min = v;
+		if (++b === 8) {
+			b = 0;
+			j++;
+		}
+	}
+
+	// 振幅を最大化
+	amp2 = Math.min(124.0 / (max - 128), -128.0 / (min - 128));
+	for (i = 0, len = aryO.length; i < len; i++) {
+		aryL[i] -= 128;
+		aryO[i] -= 128;
+		aryL[i] *= amp2;
+		aryO[i] *= amp2;
+		aryDif[i] *= amp2;
+		aryL[i] += 128;
+		aryO[i] += 128;
+	}
+
+	// ループしない場合後端を0に合わせて詰める
+	len = aryB.length;
+	while (j < len) {
+		if (b === 0) aryB[j] = 0;
+		if (v < 128) {
+			v += 4;
+			aryB[j] += 1 << b;
+			up++;
+		} else {
+			v -= 4;
+			dw++;
+		}
+		if (++b === 8) {
+			b = 0;
+			j++;
+		}
+	}
+
+	str =
+		"#WAV9 " + 
+		(isNaN(wavNo = getElem("wavNo").value) ? 0 : wavNo) +
+		"," + vi + "," + (loop ? "1" : "0") + "," +
+		base64EncodeUint8(aryB);
+
+	txtArea.value = str;
+	txtArea.cols = "40";
+	txtArea.rows = "5";
+	txtArea.setAttribute("readonly", true);
+	txtArea.addEventListener("dblclick", function (evt) {
+		evt.srcElement.select();
+	});
+	output(txtArea, "elem");
+	outputLn("ダブルクリックで全選択", "small");
+
+	outputLn("サンプル数:" + (aryB.length << 3));
+	outputLn(
+		"最大振幅: <span class='u'>" +
+		(1.0 / amp2).toFixed(2) + " (" +
+		(-20.0 * Math.log(amp2) / Math.log(10.0)).toFixed(2) +
+		" dB)</span>"
+	, "html");
+	outputLn("@L<span class='u'>" + cent + "</span>,0,2 O4 c が原音の高さです。", "html");
+	if (loop) outputLn("ループ仕様です。");
+
+	if (audioCtx) {
+		// 試聴プレイヤー貼り付け
+		bufBefore = audioCtx.createBuffer(1, aryL.length, sRate);
+		bufAfter = audioCtx.createBuffer(1, aryO.length, sRate);
+		aryBef = bufBefore.getChannelData(0);
+		aryAft = bufAfter.getChannelData(0);
+		for (i = 0, len = aryL.length; i < len; i++) {
+			aryBef[i] = aryL[i] / 127.5 - 1.0;
+			aryAft[i] = aryO[i] / 127.5 - 1.0;
+		}
+		btnPlayBef = createElem("button");
+		btnPlayBef.appendChild(document.createTextNode("♪変換前"));
+		btnPlayBef.addEventListener("click", playBefore);
+		btnPlayAft = createElem("button");
+		btnPlayAft.appendChild(document.createTextNode("♪変換後"));
+		btnPlayAft.addEventListener("click", playAfter);
+		btnStop = createElem("button");
+		btnStop.appendChild(document.createTextNode("停止"));
+		btnStop.addEventListener("click", stop);
+		rangeVol = createElem("input");
+		rangeVol.type = "range";
+		rangeVol.min = 0;
+		rangeVol.max = 1;
+		rangeVol.step = .01;
+		rangeVol.value = gain.gain.value;
+		rangeVol.addEventListener("input", onInputVolume);
+		output(btnPlayBef, "elem");
+		output("→");
+		output(btnPlayAft, "elem");
+		output(" ");
+		output(btnStop, "elem");
+		output(" ");
+		outputLn(rangeVol, "elem");
+		playbackRate = (loop ? -1.0 : 1.0) / rat;
+	}
+
+	if (graph) {
+		// グラフ描画
+		cvGrp = createElem("canvas");
+		cvGrp.width = aryL.length * getRadBtnValue("radGrpSiz") + 2 | 0;
+		cvGrp.height = 192 * getRadBtnValue("radGrpSiz") + 2 | 0;
+		initGraph(cvGrp);
+		drawGraph(cvGrp, aryDif, "#ff4040");
+		drawGraph(cvGrp, aryL, "#202020");
+		drawGraph(cvGrp, aryO, "#0000ff");
+		cvNum = createElem("canvas");
+		cvNum.width = 56;
+		cvNum.height = cvGrp.height;
+		cvNum.style.position = "absolute";
+		cvNum.style.top = "0";
+		cvNum.style.left = "0";
+		drawMaxAmp(cvNum, 1.0 / amp2);
+		divGrpCont = createElem("div");
+		divGrpCont.style.overflow = "scroll";
+		divGrpCont.appendChild(cvGrp);
+		divGraph = createElem("div");
+		divGraph.style.position = "relative";
+		divGraph.appendChild(divGrpCont);
+		divGraph.appendChild(cvNum);
+		output(divGraph, "elem");
+		outputLn("<span class='s'>黒: 変換前, <span style='color: #0000ff;'>青: 変換後</span>, <span style='color: #ff4040;'>赤: 差の絶対値</span></span>", "html");
+	}
+}
+
+/* ----------------------------------------------------------------
+	ファイルが選択された
+   ---------------------------------------------------------------- */
+function onChangeFile(evt) {
+	var fFile = evt.srcElement;
+
+	if (!fFile.value || !fFile.files || !fFile.files[0]) return;
+
+	file = fFile.files[0];
+	loadFile();
+}
+
+/* ----------------------------------------------------------------
+	ドラッグ中
+   ---------------------------------------------------------------- */
+function onDragOver(evt) {
+	evt.stopPropagation();
+	evt.preventDefault();
+	evt.dataTransfer.dropEffect = "copy";
+}
+
+/* ----------------------------------------------------------------
+	ドラッグ & ドロップ
+   ---------------------------------------------------------------- */
+function onDrop(evt) {
+	evt.stopPropagation();
+	evt.preventDefault();
+
+	if (!(file = evt.dataTransfer.files[0])) return;
+	loadFile();
+}
+
+function onInputVolume(evt) {
+	gain.gain.value = parseFloat(evt.target.value);
+}
+
+/* ----------------------------------------------------------------
+	(DOMの)ロード完了
+   ---------------------------------------------------------------- */
+function onLoad() {
+	var AudioCtx = window.AudioContext || window.webkitAudioContext;
+
+	if (AudioCtx) {
+		audioCtx = new AudioCtx();
+		gain = audioCtx.createGain();
+		gain.gain.value = .5;
+		gain.connect(audioCtx.destination);
+	}
+
+	getElem("file").addEventListener("change", onChangeFile);
+}
+
+addEventListener("dragover", onDragOver);
+addEventListener("drop", onDrop);
+addEventListener("DOMContentLoaded", onLoad);
+
+})();
+	</script>
+	<style>
+span.s {
+	font-size: small;
+}
+
+span.b {
+	font-weight: bold;
+}
+
+span.u {
+	text-decoration: underline;
+}
+
+div.setting {
+	display: inline-block;
+	padding: 0.25em;
+	border: 1px solid gray;
+	border-radius: 0.5em;
+}
+
+div.setting > div {
+	display: inline-block;
+	float: left;
+}
+
+div.setting:after { /* いらないかも、一応 */
+	content: "";
+	display: block;
+	clear: both;
+}
+
+div.item-name {
+	clear: left;
+	font-weight: bold;
+}
+
+div.item-expl　{
+	margin-left: 0.5em;
+	font-size: small;
+}
+
+div.history {
+	position: fixed;
+	right: 0em;
+	top: 0.5em;
+	height: 15em;
+	font-family: monospace;
+	border-spacing: 0.5em;
+	overflow: scroll;
+}
+
+div.history > div {
+	float: left;
+	margin-bottom: 0.5em;
+}
+
+div.history-date {
+	display: inline-block;
+	clear: left;
+	margin-right: 0.5em;
+}
+
+div.history-cont {
+	width: 16em;
+}
+
+label:hover {
+	background-color: #fff7f7;
+}
+	</style>
+</head>
+<body>
+	<div class="setting">
+		<div class="item-name">波形番号:</div>
+		<div>
+			@9-<input type="text" value="0" size="2" id="wavNo" /><br />
+		</div>
+		<div class="item-name">音量:</div>
+		<div>
+			<label><input type="radio" name="radAmp" value="line" checked /><input type="text" value="1" size="4" id="amp" />倍する</label><br />
+			<label><input type="radio" name="radAmp" value="auto" />自動で最大化する</label><br />
+		</div>
+		<div class="item-name">ピッチ:</div>
+		<div>
+			<label><input type="radio" name="radPch" value="cent" checked />@L<input type="text" value="4782" size="4" id="cent" />,0,2 c のとき原音</label><br />
+			<label><input type="radio" name="radPch" value="auto" />長さに合わせて最大伸張</label><br />
+		</div>
+		<div class="item-expl">
+			@L[n]のnは大きい程高音質<br />
+			(最大7999)
+		</div>
+		<div class="item-name">ループ:</div>
+		<div><label><input type="checkbox" id="loop" />させる</label></div>
+		<div class="item-expl">※原音ピッチが指定した値からわずかに下がります。</div>
+		<div class="item-name">波形表示:</div>
+		<div>
+			<label><input type="checkbox" id="graph" />する</label>
+			<span class="s">(サイズ
+				<label><input type="radio" name="radGrpSiz" value=".333" checked />小</label>
+				<label><input type="radio" name="radGrpSiz" value=".5" />中</label>
+				<label><input type="radio" name="radGrpSiz" value="1" />大</label>)
+			</span>
+		</div>
+	</div><br />
+	<input type="file" id="file" /> <span class="s">(ドラッグ&amp;ドロップも可)</span>
+	<div id="result"></div>
+	<div class="history">
+		<div class="history-date">2015/ 8/29</div>
+		<div class="history-cont">
+			試聴機能追加(Web Audio API対応ブラウザのみ)。<br />
+			波形表示機能追加。<br />
+			IEで動作しなかった問題を修正。<br />
+			変換の精度をわずかに改善。<br />
+			UI周りを若干変更。<br />
+		</div>
+		<div class="history-date">2015/ 7/ 3</div>
+		<div class="history-cont">
+			ピッチ指定時7999を超えられるよう非ループの場合のみ波形クリップ時の挙動を変更。
+		</div>
+		<div class="history-date">2015/ 4/ 3</div>
+		<div class="history-cont">
+			音量の倍率を指定した場合ステータスが表示されないバグを修正。
+		</div>
+		<div class="history-date">2014/ 7/13</div>
+		<div class="history-cont">
+			出力結果を毎回消去するように変更。<br />
+			ループ時の処理追加。
+		</div>
+		<div class="history-date">2014/ 7/ 7</div>
+		<div class="history-cont">
+			公開。
+		</div>
+	</div>
+</body>
+</html>

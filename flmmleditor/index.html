@@ -1,0 +1,136 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+	<meta charset="UTF-8" />
+	<title>FlMMLえでぃた</title>
+	<script src="ace/ace.js"></script>
+	<script src="flmmlonhtml5.js"></script>
+	<script src="jquery-2.1.4.min.js"></script>
+	<script src="jquery-ui.min.js"></script>
+	<script src="index.js"></script>
+	<link href="jquery-ui.min.css" rel="stylesheet" />
+	<link href="index.css" rel="stylesheet" />
+</head>
+<body>
+	<div id="toolbar" class="ui-widget-header ui-corner-all">
+		<div class="group">
+			<button id="open" title="ファイルから読み込む (Ctrl+O, &#x2318;+O)"></button>
+			<button id="save" title="ローカルストレージに保存 (Ctrl+S, &#x2318;+S)"></button>
+			<button id="download" title="ダウンロード (Ctrl+Shift+S, &#x2318;+Shift+S)"></button>
+		</div><!--
+	 --><div class="group">
+			<button id="undo" title="元に戻す (Ctrl+Z, &#x2318;+Z)"></button>
+			<button id="redo" title="やり直し (Ctrl+Y, Ctrl+Shift+Z, &#x2318;+Y, &#x2318;+Shift+Z)"></button>
+		</div><!--
+	 --><div class="group">
+			<button id="find" title="検索 (Ctrl+F, &#x2318;+F)<br/>置換 (Ctrl+H, &#x2318;+Shift+F)"></button>
+			<button id="findprev" title="前を検索 (Ctrl+Shift+K, &#x2318;+Shift+G)"></button>
+			<button id="findnext" title="次を検索 (Ctrl+K, &#x2318;+G)"></button>
+		</div><!--
+	 --><div class="group">
+			<button id="play" title="再生 (F5, Ctrl+P, &#x2318;+P)"></button>
+			<button id="pause" title="一時停止 (F6)"></button>
+			<button id="stop" title="停止 (F7, Ctrl+T, &#x2318;+T)"></button>
+		</div><!--
+	 --><div id="player" class="group">
+			<div class="ui-icon ui-icon-volume-on"></div><div id="volume"></div>
+			<div id="disp" class="ui-widget">00:00/00:00</div>
+		</div><!--
+	 --><div class="group">
+	 		<button id="config" title="設定"></button>
+	 	</div><!--
+	 --><div class="group">
+	 		<button id="about" title="FlMMLえでぃたについて"></button>
+	 	</div>
+	</div>
+	<div id="editor-wrapper">
+		<div id="editor">#USING POLY 2
+$macro{n}=c%ng&amp;&lt;(9c%ng&amp;fd&gt;b&amp;)9gfd&amp;;
+@E1,1,1,99,21 @PL2 Q16 L12 O5
+/:2 $macro{e}/$macro{e+}$macro{e-}:/
+c2.&amp;c*>c4</div>
+	</div>
+	<span id="dispSave" style="display:none;"></span>
+	<textarea id="warnings" placeholder="(警告)" readonly></textarea>
+	<div id="statusbar" class="ui-widget ui-state-highlight ui-corner-all">
+		<p><span class="ui-icon ui-icon-info"></span><span id="status"></span></p>
+	</div>
+	<div id="errorbar" class="ui-widget ui-state-error ui-corner-all">
+		<p><span class="ui-icon ui-icon-alert"></span><span id="error"></span></p>
+	</div>
+
+	<div id="dialog-open" title="ファイルから読み込む">
+		<p><input type="file" id="file" /></p>
+		<p>(D&amp;D可)</p>
+		<p>編集中のMMLは上書きされます。</p>
+	</div>
+
+	<div id="dialog-download" title="ダウンロード">
+		<p>ファイル名:<input type="text" id="filename" /></p>
+	</div>
+
+	<div id="dialog-config" title="設定">
+		<div id="tabs-config">
+			<ul>
+				<li><a href="#tabs-config-1">全般</a></li>
+				<li><a href="#tabs-config-2">エディタ</a></li>
+			</ul>
+			<div id="tabs-config-1">
+				<p><label>
+					<input type="checkbox" id="cfg-opensave" />ファイル読み込み時に保存
+				</label></p>
+				<p>
+					<label><input type="checkbox" id="cfg-autosave" />自動保存</label>
+					(間隔 <input type="text" id="cfg-autosave-interval" />秒)
+				</p>
+			</div>
+			<div id="tabs-config-2">
+				<p>font-family:<input type="text" id="cfg-font-family" /></p>
+				<p>font-size:<input type="text" id="cfg-font-size" /></p>
+				<p>
+					文字の折り返し:<br />
+					<label>
+						<input type="radio" name="wrap" id="cfg-wrap-off" />折り返さない
+					<label><br />
+					<label>
+						<input type="radio" name="wrap" id="cfg-wrap-num" /><input type="text" id="cfg-wrap-len" />文字で折り返す
+					</label><br />
+					<label>
+						<input type="radio" name="wrap" id="cfg-wrap-free" />テキストボックス右端で折り返す
+					<label><br />
+				</p>
+				<p>タブ幅:<input type="text" id="cfg-tabsize" /></p>
+				<p><label>
+					<input type="checkbox" id="cfg-softtab" />タブをスペースに変換する
+				</label></p>
+				<p><label>
+					<input type="checkbox" id="cfg-show-invisibles" />空白文字・改行を可視化
+				</label></p>
+			</div>
+		</div>
+	</div>
+
+	<div id="dialog-about" title="FlMMLえでぃた">
+		<p>Version 0.1.1</p>
+		<p>以下のプラグインを使わせていただきました:
+			<ul>
+				<li><a href="https://ace.c9.io/" target="_blank">Ace - The High Performance<br />Code Editor for the Web</a></li>
+				<li><a href="https://jquery.com/" target="_blank">jQuery</a></li>
+				<li><a href="http://jqueryui.com/" target="_blank">jQuery UI</a></li>
+			</ul>
+		</p>
+		<p>
+			また <a href="https://flmml.codeplex.com/" target="_blank">FlMML</a> をJavaScriptに移植した<br />
+			<a href="https://github.com/carborane3/FlMMLonHTML5" target="_blank">FlMMLonHTML5</a> を使用しています。
+		</p>
+		<p>&copy;Ag/carborane3 2015</p>
+	</div>
+</body>
+</html>
+<!--
+	更新履歴
+	0.1.1  ダウンロード機能追加
+	0.1.0  公開
+-->
+

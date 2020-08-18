@@ -1,0 +1,116 @@
+* {
+	font-family: 'Hiragino Kaku Gothic ProN', 'ヒラギノ角ゴ Pro W3', 'Yu Gothic', '游ゴシック', Meiryo, 'メイリオ', sans-serif;
+}
+
+body {
+	margin-left: 0;
+	margin-right: 0;
+	margin-top: 0;
+	margin-bottom: 800px;
+	background-color: hsl(60,30%,96%);
+}
+
+h1 {
+	border-bottom: 1px solid silver;
+}
+
+h2 {
+	background-color: hsl(60,30%,94%);
+	border-radius: 4px;
+}
+
+h3 {
+	padding-left: 4px;
+	border-left: 3px solid hsl(60,30%,75%);
+}
+
+a {
+	color: hsl(210,70%,50%);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+ul, ol {
+	padding-left: 30px;
+}
+
+hr {
+	border: 0;
+	border-bottom: 1px solid silver;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+th {
+	background-color: hsl(60,30%,94%);
+}
+
+th, td {
+	border: 1px solid silver;
+}
+
+.container {
+	background-color: white;
+	max-width: 800px;
+	padding: 30px;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+table.number td {
+	text-align: right;
+}
+
+div.table-wrapper {
+	white-space: nowrap;
+	overflow: auto;
+}
+
+.footer {
+	font-size: small;
+}
+
+.expander-caption {
+	color: hsl(210,70%,50%);
+	cursor: pointer;
+}
+
+.expander-caption:hover {
+	text-decoration: underline;
+}
+
+.expander-caption-icon {
+	padding-right: 4px;
+	font-weight: bold;
+	font-family: "Courier New", monospace;
+}
+
+.expander-contents {
+	margin-left: 0.5em;
+}
+
+.ref {
+	vertical-align: super;
+	font-size: small;
+}
+
+.notes {
+	margin-top: 1em;
+	margin-bottom: 1em;
+	border-top: 1px solid silver;
+	border-bottom: 1px solid silver;
+	font-size: small;
+}
+
+.notes p:not(.highlighted) {
+	transition: background 2s;
+}
+
+.notes p.highlighted {
+	background-color: hsl(210,70%,95%);
+}

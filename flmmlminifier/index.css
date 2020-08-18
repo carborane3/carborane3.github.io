@@ -1,0 +1,27 @@
+﻿html, body {
+    height: 98%;
+}
+
+body {
+    margin: 1%;
+    padding: 0;
+}
+
+.exp {
+    line-height: 100%;
+    font-family: "Verdana", sans-serif;
+}
+
+#run {
+    height: 8%;
+    box-sizing: border-box;
+    font-family: "Verdana", sans-serif;
+}
+
+#mml-input,
+#mml-output {
+    width: 100%;
+    height: 38%;
+    box-sizing: border-box;
+    font-family: "Courier New", "Courier", monospace;
+}

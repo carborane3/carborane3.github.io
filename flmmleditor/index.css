@@ -1,0 +1,142 @@
+/*
+'Meiryo UI','MS UI Gothic','游ゴシック体',YuGothic,'ヒラギノ角ゴ Pro',sans
+*/
+
+body {
+	margin: 0;
+}
+
+#toolbar div {
+	display: inline-block;
+}
+
+#toolbar button {
+	width: 26px;
+	height: 26px;
+}
+
+
+#editor-wrapper {
+	position: relative;
+}
+
+#editor {
+	position: absolute;
+	left: 0;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	font-size: 12pt;
+}
+
+#player {
+	box-sizing: border-box;
+	height: 26px;
+	background-color: hsla(205, 100%, 50%, .2);
+	border-radius: 5px;
+	border: 1px solid hsl(205, 53%, 80%);
+}
+
+#player .ui-icon {
+	position: relative;
+	top: 3px;
+}
+
+#volume {
+	width: 90px;
+}
+
+#disp {
+	padding-left: 4px;
+	width: 120px;
+}
+
+#warnings {
+	display: block;
+	box-sizing: border-box;
+	margin-left: auto;
+	margin-right: auto;
+	width: 100%;
+	height: 100px;
+	font-size: 14px;
+}
+
+#dispSave {
+	color: #f00000;
+}
+
+#statusbar,
+#errorbar {
+	position: absolute;
+	box-sizing: border-box;
+	padding-left: 8px;
+	left: 0;
+	bottom: 0;
+	width: 100%;
+}
+
+#statusbar .ui-icon,
+#errorbar .ui-icon {
+	float: left;
+	margin-right: 4px;
+}
+
+#file {
+	box-sizing: border-box;
+	width: 270px;
+}
+
+#filename {
+	box-sizing: border-box;
+	float: right;
+	width: 150px;
+}
+
+#dialog-config input {
+	box-sizing: border-box;
+}
+
+#cfg-font-family {
+	position: relative;
+	float: right;
+	width: 240px;
+}
+
+#cfg-font-size {
+	position: relative;
+	float: right;
+	right: 190px;
+	width: 50px;
+}
+
+#cfg-tabsize {
+	position: relative;
+	float: right;
+	right: 205px;
+	width: 35px;
+}
+
+#cfg-wrap-len {
+	width: 35px;
+}
+
+#cfg-autosave-interval {
+	width: 35px;
+}
+
+#dialog-about li {
+	margin-left: -15px;
+}
+
+.ui-tooltip-content {
+	font-size: 12px;
+}
+
+.ui-slider-horizontal {
+	height: 6px;
+}
+
+.ui-slider .ui-slider-handle {
+	margin-top: -2px;
+    height: 15px;
+}

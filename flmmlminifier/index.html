@@ -1,0 +1,96 @@
+﻿<!DOCTYPE html>
+
+<!--
+    ---- Before ----
+    /*!
+        Example
+    */
+    /*![KEEP,Keep]*/
+    $MACRO=@e1, 1, 0,127, 1;
+    $Macro=@2-1 v15 l8;
+    $KEEP=ceg< ceg;
+    $Keep=fd>b gfd;
+    $Remove=c2.; /*!*/
+
+    /* Comment */
+    $MACRO $Macro
+    $KEEP $Keep
+    /*!*/ $Remove
+    
+
+    ---- After ----
+    /*!
+        Example
+    */
+    $A=@e1,1,0,127,1;$B=@2-1v15l8;$KEEP=ceg<ceg;$Keep=fd>bgfd;$A$B$KEEP$Keep
+-->
+
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlMML Minifier</title>
+    <link rel="stylesheet" type="text/css" href="index.css" />
+    <script src="flmmlminifier.js"></script>
+    <script src="jquery-2.1.4.min.js"></script>
+    <script>
+        function minify() {
+            var input = $("#mml-input").val();
+            var output = FlMMLMinifier.minify(input);
+            $("#mml-output").val(output);
+            $("#len-input").text(input.length)
+            $("#len-output").text(
+                output.length + " characters (" + (output.length - input.length) + ")"
+            );
+        }
+
+        $(function () {
+            $(window).on("load resize", function (e) {
+                var h = $(window).height();
+                $("#run").css("font-size", (h / 25.0 | 0) + "px");
+                $(".exp").css("font-size", (h / 30.0 | 0) + "px");
+                $("textarea").css("font-size", (h / 45.0 | 0) + "px");
+            });
+            $(window).on("dragover", function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.originalEvent.dataTransfer.dropEffect = "copy";
+            });
+            $(window).on("drop", function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                var file;
+                if ((file = e.originalEvent.dataTransfer.files[0])) {
+                    var reader = new FileReader();
+                    reader.onload = function (e) {
+                        $("#mml-input").val(e.target.result);
+                        minify();
+                    };
+                    reader.readAsText(file);
+                }
+            });
+            $("#run").click(minify);
+            $("#mml-input").on("keyup change", function () {
+                $("#len-input").text($(this).val().length);
+            });
+            $("#mml-output").dblclick(function () {
+                $(this).select();
+                return false;
+            });
+        });
+    </script>
+</head>
+<body>
+    <div class="exp">
+        Source MML:
+        <span id="len-input">0</span> characters
+    </div>
+    <textarea id="mml-input" placeholder="Input MML or drag and drop a file."></textarea>
+    <button id="run"> Minify </button>
+    <div class="exp"><br /></div>
+    <div class="exp">
+        Minified MML:<span id="len-output"></span></div>
+    <textarea id="mml-output" placeholder=""></textarea>
+    <div class="exp">Select all by double-click</div>
+</body>
+</html>
